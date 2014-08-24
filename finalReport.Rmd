@@ -1,0 +1,127 @@
+#### Human Activity Recognition: Predicting Exercise Class using Machine Lerning Methods
+
+##### Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset). 
+
+The goal in this  project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.The 
+
+
+```{r, echo=FALSE, results='hide'}
+setwd("C:/Users/vranjan2/Desktop/dtp1/stats/signatureTrack/practicalMachineLearning/assignment/")
+getwd()
+```
+
+##### Data preparation
+
+For the data preparation, first, I loaded training and test data in R. I converted all empty string to "NA". The summary on the training data revealed that multiple columns have large number of NAs. The function below finds out indices of all the columns which has more than 25% NAs. Once the indices are found, I remove those columns from the training data. Finally, I removed columns X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp from the training data as these are not accelerometer data and should not be in an indicator of the the way exercise is performed. 
+
+```{r}
+#
+# Read in the training and test data.
+#
+trainData <- read.csv(file="pml-training.csv")
+testData <- read.csv(file="pml-testing.csv")
+# 
+# Convert the blanks to "NA".
+#
+trainData[trainData == ""] = NA
+```
+
+```{r, results='hide'}
+summary(trainData)
+```
+
+```{r}
+#
+# Identify columns with more than 25% NAs and store the column indices.
+#
+dIndex = numeric()  # initialize empty numeric vector
+for(i in 1:length(names(trainData))){
+  if(sum(is.na(trainData[i]))/nrow(trainData) >= 0.25) dIndex = c(dIndex,i)
+}
+#
+# Remove identified columns.
+#
+trainData <- trainData[,-dIndex]
+#
+# Remove non-accelererometer variables that is not important for prediction
+#
+trainData <- subset(trainData, select=-c(X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+```
+
+##### Machine learning
+
+I have used random forest as implemented in CARET package for building model and prediction. I have taken two approaches. 
+
+(1) Split the training data into training set (75%) and cross validation set (25%). In the following the steps involved and results are printed. I have used 10 fold cross validation set, so the sample size is 13246 for training without any preprocessing of data. 
+
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE}
+library(caret)
+set.seed(12000)
+inTrain <- createDataPartition(trainData$classe, p=0.75, list=F)
+training <- trainData[inTrain,]
+testing <- trainData[-inTrain,]
+#
+library(doParallel)
+registerDoParallel(cores = 4)
+ctrl <- trainControl(method="cv", number = 10, repeats = 4)
+modFit <- train(classe ~ ., data=training, mode="rf", trControl = ctrl, ntree=50)
+```
+
+Based on the accuracy, th final value used for the model was mtry = 27, i.e. the number of variables tried at each split is 27. Further out of box (oob) estimate of error rate in training data is 0.71%. The confusion matrix for training data is also printed below. I have also printed 20 most important variables in the model. 
+
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE}
+#modFit
+modFit$results
+modFit$finalModel
+varImp(modFit)
+```
+
+Finally, the out of sample accuracy is 99.20%, i.e. the out of sample error rate is 0.8% calculated below. The accompanying confusion matrix shows the prediction and error rate for each classe.  
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE}
+pred <- predict(modFit, newdata=testing)
+sum(pred == testing$classe) / length(pred)
+confusionMatrix(testing$classe, pred)$table
+```
+
+The final prediction for the test data (to be submitted separately) is given below. 
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE}
+predTest <- predict(modFit, newdata = testData)
+predTest
+```
+
+(2) The second approach I took was to not split the training data into further training and cross validation set. Rather use the well known fact that random forest does very well with respect to out of box (oob) error. I wanted to check if this holds if I don't use cross validation set. Whereas in cross validation method above, 10% of the data was used for cross validation, in the current method 3rd of the data is used for cross validation. The oob error rate is now only 0.57%. The two most significant variables used for prediction are the same, but their weights in the model is changed (and also the order of significance). The variable mtry = 27 for this model too.  
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE}
+library(doParallel)
+registerDoParallel(cores = 4)
+ctrl <- trainControl(method="oob")
+modFit1 <- train(classe ~ ., data=trainData, mode="rf", trControl = ctrl, ntree=50)
+modFit1$finalModel
+predTest1 <- predict(modFit1, newdata = testData)
+predTest1
+varImp(modFit1)
+```
+
+```{r, warning=FALSE, cache=TRUE,message=FALSE,echo=FALSE,eval=FALSE,results='hide'}
+library(doParallel)
+registerDoParallel(cores = 4)
+ctrl <- trainControl(method="oob")
+modFit2 <- train(classe ~ ., data=trainData, mode="rf", trControl = ctrl, ntree=50,metric = "roc")
+modFit2$finalModel
+predTest2 <- predict(modFit2, newdata = testData)
+predTest2
+plot(modFit2)
+modFit2$results
+```
+
+#### Conclusion
+
+The random forest from CARET package produces 0.8% cross validation set error. The final results on the test data has 100% accuracy.
